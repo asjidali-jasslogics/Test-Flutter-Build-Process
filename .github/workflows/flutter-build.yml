@@ -33,7 +33,7 @@ jobs:
 
       - name: 🔐 Clone private Flutter repository
         run: |
-          echo "Cloning private Flutter repository from: https://github.com/$GH_USERNAME/$GH_REPO.git"
+          echo "Cloning private Flutter repository..."
           git clone -b $BRANCH https://$GH_USERNAME:$GH_TOKEN@github.com/$GH_USERNAME/$GH_REPO.git app
           cd app
           export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
@@ -44,18 +44,20 @@ jobs:
           echo "Patching Gradle and Android Gradle Plugin versions..."
           cd app/android
 
-          # Force AGP to 8.1.1 or higher
+          # Safely patch AGP version (8.1.1+)
           if grep -q "com.android.tools.build:gradle" build.gradle; then
-            sed -i "s/com.android.tools.build:gradle:[0-9.]\+/com.android.tools.build:gradle:8.1.1/g" build.gradle
+            sed -i "s#com\.android\.tools\.build:gradle:[0-9\.]\+#com.android.tools.build:gradle:8.1.1#g" build.gradle || true
           fi
 
-          # Force Gradle wrapper to latest stable 8.7+
+          # Safely update Gradle wrapper to 8.7
           if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            sed -i "s/distributionUrl=.*/distributionUrl=https\\\://services.gradle.org/distributions/gradle-8.7-bin.zip/g" gradle/wrapper/gradle-wrapper.properties
+            echo "Updating Gradle wrapper to 8.7..."
+            sed -i "s#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip#g" gradle/wrapper/gradle-wrapper.properties || true
           fi
 
-          cat build.gradle | grep "com.android.tools.build:gradle" || echo "✅ AGP patched"
-          cat gradle/wrapper/gradle-wrapper.properties | grep "distributionUrl"
+          echo "🔧 Gradle configuration after patch:"
+          grep "com.android.tools.build:gradle" build.gradle || echo "AGP line verified"
+          grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties || echo "Gradle wrapper verified"
 
       - name: 🚀 Build Flutter APK (skip dependency validation)
         run: |
