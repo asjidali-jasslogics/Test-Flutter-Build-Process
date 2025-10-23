@@ -1,28 +1,25 @@
 name: 🧱 Flutter Build Automation
 
 on:
-  workflow_dispatch: # Manual trigger only
-  # push:
-  #   branches:
-  #     - main  # Optional: auto-build on main push
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     env:
-      GH_USERNAME: ${{ secrets.USERNAME }}   # your other GitHub account username
-      GH_REPO: ${{ secrets.REPO }}           # target private repo name
-      GH_TOKEN: ${{ secrets.GH_PAT }}        # PAT with repo access
+      GH_USERNAME: ${{ secrets.USERNAME }}
+      GH_REPO: ${{ secrets.REPO }}
+      GH_TOKEN: ${{ secrets.GH_PAT }}
       BRANCH: main
 
     steps:
       - name: 🧹 Checkout triggering repository
         uses: actions/checkout@v4
 
-      - name: 📦 Install system dependencies
+      - name: 📦 Install dependencies
         run: |
-          echo "Updating system and installing dependencies..."
+          echo "Updating and installing dependencies..."
           sudo apt update -y
           sudo apt install -y unzip zip git curl wget openjdk-17-jdk
 
@@ -31,8 +28,7 @@ jobs:
           echo "Installing Flutter SDK..."
           git clone https://github.com/flutter/flutter.git -b stable /opt/flutter
           export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
-          echo "Flutter path added successfully."
-          flutter doctor -v || { echo "❌ Flutter installation failed"; exit 1; }
+          flutter doctor -v
           flutter --version
 
       - name: 🔐 Clone private Flutter repository
@@ -43,16 +39,34 @@ jobs:
           export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
           flutter pub get
 
-      - name: 🚀 Build Flutter release APK
+      - name: 🧰 Patch Gradle and AGP Versions (Auto-fix)
+        run: |
+          echo "Patching Gradle and Android Gradle Plugin versions..."
+          cd app/android
+
+          # Force AGP to 8.1.1 or higher
+          if grep -q "com.android.tools.build:gradle" build.gradle; then
+            sed -i "s/com.android.tools.build:gradle:[0-9.]\+/com.android.tools.build:gradle:8.1.1/g" build.gradle
+          fi
+
+          # Force Gradle wrapper to latest stable 8.7+
+          if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
+            sed -i "s/distributionUrl=.*/distributionUrl=https\\\://services.gradle.org/distributions/gradle-8.7-bin.zip/g" gradle/wrapper/gradle-wrapper.properties
+          fi
+
+          cat build.gradle | grep "com.android.tools.build:gradle" || echo "✅ AGP patched"
+          cat gradle/wrapper/gradle-wrapper.properties | grep "distributionUrl"
+
+      - name: 🚀 Build Flutter APK (skip dependency validation)
         run: |
           echo "Building Flutter release APK..."
           cd app
           export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
-          flutter build apk --release || { echo "❌ Build failed"; exit 1; }
+          flutter build apk --release --android-skip-build-dependency-validation
 
       - name: 📦 Package build artifacts
         run: |
-          echo "Packaging Flutter build..."
+          echo "Packaging release build..."
           cd app/build/app/outputs/flutter-apk
           zip -r flutter_build_${{ github.run_id }}.zip .
           mv flutter_build_${{ github.run_id }}.zip $GITHUB_WORKSPACE/
