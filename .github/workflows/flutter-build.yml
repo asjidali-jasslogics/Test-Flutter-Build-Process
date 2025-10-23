@@ -1,0 +1,63 @@
+name: 🧱 Flutter Build Automation
+
+on:
+  workflow_dispatch: # Manual trigger only (can be run from Actions tab)
+  # push:
+  #   branches:
+  #     - main  # Uncomment to build automatically on main branch push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_USERNAME: ${{ secrets.USERNAME }}         # your other GitHub account username
+      GH_REPO: ${{ secrets.REPO }}                 # target private repo name
+      GH_TOKEN: ${{ secrets.GH_PAT }}              # PAT with repo access
+      BRANCH: main
+
+    steps:
+      - name: 🧹 Checkout triggering repository
+        uses: actions/checkout@v4
+
+      - name: 📦 Install system dependencies
+        run: |
+          echo "Updating system and installing prerequisites..."
+          sudo apt update -y
+          sudo apt install -y unzip zip git curl wget openjdk-17-jdk
+
+      - name: 🪄 Install Flutter SDK
+        run: |
+          echo "Installing Flutter SDK..."
+          git clone https://github.com/flutter/flutter.git -b stable /opt/flutter
+          echo "/opt/flutter/bin" >> $GITHUB_PATH
+          flutter --version
+          flutter doctor -v
+
+      - name: 🔐 Clone private Flutter repository
+        run: |
+          echo "Cloning private Flutter repository from: https://github.com/$GH_USERNAME/$GH_REPO.git"
+          git clone -b $BRANCH https://$GH_USERNAME:$GH_TOKEN@github.com/$GH_USERNAME/$GH_REPO.git app
+          cd app
+          flutter pub get
+
+      - name: 🚀 Build Flutter release APK
+        run: |
+          echo "Building Flutter APK..."
+          cd app
+          flutter build apk --release
+
+      - name: 📦 Package build artifacts
+        run: |
+          echo "Packaging release build..."
+          cd app/build/app/outputs/flutter-apk
+          zip -r flutter_build_${{ github.run_id }}.zip .
+          mv flutter_build_${{ github.run_id }}.zip $GITHUB_WORKSPACE/
+          echo "✅ Build packaged successfully."
+
+      - name: 📤 Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter_build_${{ github.run_id }}
+          path: flutter_build_${{ github.run_id }}.zip
+          retention-days: 5
