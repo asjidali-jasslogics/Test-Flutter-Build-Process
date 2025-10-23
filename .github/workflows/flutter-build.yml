@@ -1,19 +1,19 @@
 name: 🧱 Flutter Build Automation
 
 on:
-  workflow_dispatch: # Manual trigger only (can be run from Actions tab)
+  workflow_dispatch: # Manual trigger only
   # push:
   #   branches:
-  #     - main  # Uncomment to build automatically on main branch push
+  #     - main  # Optional: auto-build on main push
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     env:
-      GH_USERNAME: ${{ secrets.USERNAME }}         # your other GitHub account username
-      GH_REPO: ${{ secrets.REPO }}                 # target private repo name
-      GH_TOKEN: ${{ secrets.GH_PAT }}              # PAT with repo access
+      GH_USERNAME: ${{ secrets.USERNAME }}   # your other GitHub account username
+      GH_REPO: ${{ secrets.REPO }}           # target private repo name
+      GH_TOKEN: ${{ secrets.GH_PAT }}        # PAT with repo access
       BRANCH: main
 
     steps:
@@ -22,7 +22,7 @@ jobs:
 
       - name: 📦 Install system dependencies
         run: |
-          echo "Updating system and installing prerequisites..."
+          echo "Updating system and installing dependencies..."
           sudo apt update -y
           sudo apt install -y unzip zip git curl wget openjdk-17-jdk
 
@@ -30,26 +30,29 @@ jobs:
         run: |
           echo "Installing Flutter SDK..."
           git clone https://github.com/flutter/flutter.git -b stable /opt/flutter
-          echo "/opt/flutter/bin" >> $GITHUB_PATH
+          export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
+          echo "Flutter path added successfully."
+          flutter doctor -v || { echo "❌ Flutter installation failed"; exit 1; }
           flutter --version
-          flutter doctor -v
 
       - name: 🔐 Clone private Flutter repository
         run: |
           echo "Cloning private Flutter repository from: https://github.com/$GH_USERNAME/$GH_REPO.git"
           git clone -b $BRANCH https://$GH_USERNAME:$GH_TOKEN@github.com/$GH_USERNAME/$GH_REPO.git app
           cd app
+          export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
           flutter pub get
 
       - name: 🚀 Build Flutter release APK
         run: |
-          echo "Building Flutter APK..."
+          echo "Building Flutter release APK..."
           cd app
-          flutter build apk --release
+          export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
+          flutter build apk --release || { echo "❌ Build failed"; exit 1; }
 
       - name: 📦 Package build artifacts
         run: |
-          echo "Packaging release build..."
+          echo "Packaging Flutter build..."
           cd app/build/app/outputs/flutter-apk
           zip -r flutter_build_${{ github.run_id }}.zip .
           mv flutter_build_${{ github.run_id }}.zip $GITHUB_WORKSPACE/
