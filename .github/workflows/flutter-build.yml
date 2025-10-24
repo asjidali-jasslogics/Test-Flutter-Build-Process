@@ -99,6 +99,7 @@ jobs:
       - name: ✅ Check Flutter App Requirements and dependencies
         run: |
           echo "Flutter doctor"
+          export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
           flutter doctor
           
       - name: 🚀 Build Flutter APK (Dev Mode)
