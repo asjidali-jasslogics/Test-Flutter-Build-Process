@@ -22,13 +22,14 @@ jobs:
         run: |
           echo "Updating and installing dependencies..."
           sudo apt update -y
-          sudo apt install -y unzip zip git curl wget openjdk-17-jdk
+          sudo apt install -y unzip zip git curl wget openjdk-17-jdk libgtk-3-dev
 
       - name: 🪄 Install Flutter 3.24.2
         run: |
           echo "Installing Flutter SDK (3.24.2)..."
           git clone https://github.com/flutter/flutter.git -b 3.24.2 /opt/flutter
-          export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
+          echo "/opt/flutter/bin" >> $GITHUB_PATH
+          echo "/opt/flutter/bin/cache/dart-sdk/bin" >> $GITHUB_PATH
           flutter doctor -v
           flutter --version
 
@@ -37,8 +38,30 @@ jobs:
           echo "Cloning private Flutter repository..."
           git clone -b $BRANCH https://$GH_USERNAME:$GH_TOKEN@github.com/$GH_USERNAME/$GH_REPO.git app
           cd app
-          export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
           flutter pub get
+
+      - name: 🔧 Fix Custom Gradle Tasks (Linux Compatible)
+        run: |
+          echo "Fixing custom Gradle tasks for Linux environment..."
+          cd app/android/app
+          
+          # Check if the problematic task exists in build.gradle
+          if grep -q "updateAppName" build.gradle; then
+            echo "Found updateAppName task, creating Linux-compatible version..."
+            
+            # Create a Linux-compatible script to replace the Windows cmd commands
+            mkdir -p scripts
+            cat > scripts/update_app_name.sh << 'EOF'
+#!/bin/bash
+echo "Linux-compatible app name update script"
+# Add your Linux-compatible logic here instead of Windows cmd commands
+# For example, use sed to modify files instead of Windows-specific commands
+EOF
+            chmod +x scripts/update_app_name.sh
+            
+            # Replace the Windows task with Linux-compatible version
+            sed -i 's/commandLine "cmd",.*/commandLine "bash", "scripts\/update_app_name.sh"/g' build.gradle
+          fi
 
       - name: 🧰 Patch Gradle, AGP, and SDK versions
         run: |
@@ -51,8 +74,10 @@ jobs:
           fi
 
           # Also check settings.gradle (new Flutter template)
-          if grep -q "com.android.application" settings.gradle; then
-            sed -i "s#id 'com.android.application' version '[0-9\.]\+'#id 'com.android.application' version '8.3.2'#g" settings.gradle || true
+          if [ -f settings.gradle ]; then
+            if grep -q "com.android.application" settings.gradle; then
+              sed -i "s#id 'com.android.application' version '[0-9\.]\+'#id 'com.android.application' version '8.3.2'#g" settings.gradle || true
+            fi
           fi
 
           # Patch Gradle wrapper to 8.3
@@ -64,50 +89,55 @@ jobs:
           grep "com.android.tools.build:gradle" build.gradle || echo "AGP verified"
           grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties || echo "Gradle wrapper verified"
 
-      - name: 🧩 Install Android SDK 35 (Fixed)
+      - name: 🧩 Install Android SDK
         run: |
-          echo "Installing Android SDK 35..."
+          echo "Installing Android SDK..."
           mkdir -p $ANDROID_HOME/cmdline-tools
           cd $ANDROID_HOME/cmdline-tools
 
-          # Download latest command line tools
+          # Download command line tools
           wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmd.zip
           unzip cmd.zip -d temp
           mv temp/cmdline-tools latest
           rm -rf temp cmd.zip
 
-          # Export paths
+          # Set environment variables
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator" >> $GITHUB_ENV
+          echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH" >> $GITHUB_ENV
 
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
-
-          yes | sdkmanager --licenses
-          yes | sdkmanager \
+          # Accept licenses and install required packages
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
             "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+            "platforms;android-33" \
+            "platforms;android-34" \
+            "build-tools;33.0.1" \
+            "build-tools;34.0.0"
 
-          echo "✅ Android SDK 35 installed successfully."
+          echo "✅ Android SDK installed successfully."
 
-      - name: ✅ Verify Android SDK Installation
+      - name: ✅ Verify Environment
         run: |
-          echo "Checking Android SDK..."
-          ls -R $ANDROID_HOME/cmdline-tools/latest/bin
-          sdkmanager --list | head -20
+          echo "Checking environment..."
+          flutter --version
+          java -version
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list_installed
 
       - name: 🚀 Build Flutter APK (Dev Mode)
         run: |
           echo "Building Flutter debug APK..."
           cd app
-          export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
-          flutter doctor
-          flutter build apk --debug --android-skip-build-dependency-validation
+          
+          # Skip the custom task that requires Windows
+          ./gradlew assembleDebug -x updateAppName --no-daemon
+          
+          # Alternative: Use flutter build with specific flags
+          # flutter build apk --debug --no-pub --target-platform android-arm,android-arm64
 
       - name: 📦 Package build artifacts
         run: |
           echo "Packaging build..."
-          cd app/build/app/outputs/flutter-apk
+          cd app/build/app/outputs/apk/debug
           zip -r flutter_build_${{ github.run_id }}.zip .
           mv flutter_build_${{ github.run_id }}.zip $GITHUB_WORKSPACE/
           echo "✅ Build packaged successfully."
