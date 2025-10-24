@@ -1,168 +1,119 @@
-name: 🧱 Flutter Build Automation (Dev Mode)
+name: Flutter Build Automation (Dev Mode)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     env:
-      FLUTTER_VERSION: 3.24.2
-      ANDROID_SDK_VERSION: 35
-      ANDROID_BUILD_TOOLS: "35.0.0"
+      GH_USERNAME: ${{ secrets.USERNAME }}
+      GH_REPO: ${{ secrets.REPO }}
+      GH_TOKEN: ${{ secrets.GH_PAT }}
+      BRANCH: main
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
+      FLUTTER_GIT_URL: https://github.com/flutter/flutter.git
 
     steps:
-      - name: 🏗️ Setup Ubuntu Environment
-        run: |
-          echo "Setting up build environment..."
-          sudo apt-get update
-          sudo apt-get install -y \
-            unzip \
-            zip \
-            git \
-            curl \
-            wget \
-            openjdk-17-jdk \
-            libgtk-3-dev \
-            xvfb
-
-      - name: 📥 Checkout Repository
+      - name: Checkout triggering repository
         uses: actions/checkout@v4
 
-      - name: 🎯 Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: 'stable'
-          cache: true
-          cache-key: "flutter-${{ env.FLUTTER_VERSION }}"
-          cache-path: "${{ github.workspace }}/.flutter"
-
-      - name: 🔧 Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: "11076708"
-          build-tools-version: ${{ env.ANDROID_BUILD_TOOLS }}
-          platform-version: "android-${{ env.ANDROID_SDK_VERSION }}"
-          ndk-version: "25.1.8937393"
-          cmake-version: "3.22.1"
-
-      - name: 📝 Accept Android Licenses
+      - name: Install system dependencies
         run: |
-          yes | sdkmanager --licenses || true
-          flutter doctor --android-licenses
+          sudo apt update -y
+          sudo apt install -y \
+            unzip zip git curl wget \
+            openjdk-17-jdk \
+            libgtk-3-dev \
+            clang cmake ninja-build pkg-config liblzma-dev
 
-      - name: 🔍 Flutter Doctor & Dependencies
+      - name: Install Flutter SDK (3.24.2)
         run: |
-          echo "=== Flutter Version ==="
+          echo "Installing Flutter 3.24.2..."
+          git clone https://github.com/flutter/flutter.git -b 3.24.2 --depth 1 /opt/flutter
+          echo "/opt/flutter/bin" >> $GITHUB_PATH
           flutter --version
-          echo "=== Flutter Doctor ==="
           flutter doctor -v
-          echo "=== Getting Dependencies ==="
+
+      - name: Clone private Flutter app
+        run: |
+          echo "Cloning app from private repo..."
+          git clone -b $BRANCH https://$GH_USERNAME:$GH_TOKEN@github.com/$GH_USERNAME/$GH_REPO.git app
+          cd app
           flutter pub get
 
-      - name: 🛠️ Fix Gradle Issues
+      - name: Patch Gradle & AGP versions
         run: |
-          echo "Fixing potential Gradle configuration issues..."
-          cd android
+          cd app/android
           
-          # Update Gradle wrapper if gradle-wrapper.properties exists
+          # Update AGP in build.gradle (legacy)
+          if grep -q "com.android.tools.build:gradle" build.gradle; then
+            sed -i "s#com\.android\.tools\.build:gradle:[0-9\.]\+#com.android.tools.build:gradle:8.3.2#g" build.gradle
+          fi
+
+          # Update AGP in settings.gradle (new format)
+          if grep -q "com.android.application" settings.gradle; then
+            sed -i "s#id(\"com.android.application\") version \"[0-9\.]\+\"#id(\"com.android.application\") version \"8.3.2\"#g" settings.gradle
+          fi
+
+          # Update Gradle wrapper
           if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-all.zip|g' gradle/wrapper/gradle-wrapper.properties
-            echo "Updated Gradle wrapper to 8.3"
-          fi
-          
-          # Update Android Gradle Plugin in build.gradle
-          if [ -f build.gradle ]; then
-            sed -i 's/com.android.tools.build:gradle:[0-9][0-9.]*/com.android.tools.build:gradle:8.3.2/g' build.gradle
-            echo "Updated Android Gradle Plugin to 8.3.2"
+            sed -i "s#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-bin.zip#g" gradle/wrapper/gradle-wrapper.properties
           fi
 
-      - name: 🔄 Fix Custom Gradle Tasks (Critical Fix)
+      - name: Remove Windows 'cmd /c' from build.gradle
         run: |
-          echo "Checking for custom Gradle tasks that might fail on Linux..."
-          if [ -f android/app/build.gradle ]; then
-            # Backup the original file
-            cp android/app/build.gradle android/app/build.gradle.backup
-            
-            # Remove or fix the updateAppName task that's trying to use cmd
-            # This sed command comments out the problematic task
-            sed -i '/task updateAppName/,/^[[:space:]]*}/s/^/# /' android/app/build.gradle
-            
-            echo "Commented out updateAppName task to prevent cmd errors"
-            echo "Modified section:"
-            grep -A 5 -B 5 "updateAppName" android/app/build.gradle || echo "No updateAppName task found"
-          fi
+          cd app/android/app
+          echo "Removing Windows-specific 'cmd /c' commands..."
+          sed -i '/cmd.*\/c/d' build.gradle
+          sed -i "s/'cmd', '\/c', //g" build.gradle
+          sed -i 's/"cmd", "\/c", //g' build.gradle
+          sed -i 's/cmd \/c //g' build.gradle
+          grep -n "cmd\|exec" build.gradle || echo "No cmd/exec found."
 
-      - name: 🧪 Run Tests (Optional)
+      - name: Install Android SDK (API 35)
         run: |
-          echo "Running Flutter tests..."
-          flutter test || echo "Tests failed but continuing build"
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          cd $ANDROID_HOME/cmdline-tools
 
-      - name: 🏗️ Build APK (Debug)
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmd.zip
+          unzip -q cmd.zip
+          mkdir -p latest
+          mv cmdline-tools/* latest/ || mv */* latest/ 2>/dev/null || true
+          rm -rf cmdline-tools cmd.zip
+
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+
+          yes | sdkmanager --licenses
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Verify Flutter setup
         run: |
-          echo "Building Debug APK..."
-          flutter build apk --debug --verbose
-          echo "✅ Debug APK built successfully!"
+          cd app
+          flutter doctor -v
 
-      - name: 🏗️ Build APK (Release - Optional)
-        if: success()
+      - name: Build Debug APK
         run: |
-          echo "Building Release APK..."
-          flutter build apk --release --verbose || echo "Release build failed, but debug succeeded"
-          echo "✅ Release APK built successfully!"
+          cd app
+          flutter build apk --debug --split-per-abi
 
-      - name: 📦 Prepare Artifacts
-        if: success()
+      - name: Package APKs
         run: |
-          echo "Preparing build artifacts..."
-          mkdir -p build_artifacts
-          
-          # Copy APK files
-          if [ -f build/app/outputs/flutter-apk/app-debug.apk ]; then
-            cp build/app/outputs/flutter-apk/app-debug.apk build_artifacts/app-debug.apk
-            echo "📱 Debug APK: app-debug.apk" >> build_artifacts/README.md
-          fi
-          
-          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            cp build/app/outputs/flutter-apk/app-release.apk build_artifacts/app-release.apk
-            echo "📱 Release APK: app-release.apk" >> build_artifacts/README.md
-          fi
-          
-          # Create build info
-          echo "Build Date: $(date)" >> build_artifacts/build-info.txt
-          echo "Flutter Version: ${{ env.FLUTTER_VERSION }}" >> build_artifacts/build-info.txt
-          echo "Commit: ${{ github.sha }}" >> build_artifacts/build-info.txt
-          
-          ls -la build_artifacts/
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          cp app/build/app/outputs/flutter-apk/*.apk $GITHUB_WORKSPACE/artifacts/ || true
+          cd $GITHUB_WORKSPACE/artifacts
+          zip -r flutter_apks_${{ github.run_id }}.zip *.apk
+          echo "Build artifacts packaged."
 
-      - name: 📤 Upload APK Artifacts
-        if: success()
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-apk-build
-          path: |
-            build_artifacts/
-            build/app/outputs/flutter-apk/
+          name: flutter-apks-${{ github.run_id }}
+          path: ${{ github.workspace }}/artifacts/flutter_apks_${{ github.run_id }}.zip
           retention-days: 7
-
-      - name: 📋 Build Summary
-        if: always()
-        run: |
-          echo "=== BUILD SUMMARY ==="
-          echo "Workflow: ${{ github.workflow }}"
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Commit: ${{ github.sha }}"
-          echo "Status: ${{ job.status }}"
-          if [ -d build_artifacts ]; then
-            echo "Artifacts generated:"
-            ls -la build_artifacts/
-          else
-            echo "No artifacts generated"
-          fi
