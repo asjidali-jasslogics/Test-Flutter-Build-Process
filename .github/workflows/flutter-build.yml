@@ -96,6 +96,11 @@ jobs:
           ls -R $ANDROID_HOME/cmdline-tools/latest/bin
           sdkmanager --list | head -20
 
+      - name: ✅ Check Flutter App Requirements and dependencies
+        run: |
+          echo "Flutter doctor"
+          flutter doctor
+          
       - name: 🚀 Build Flutter APK (Dev Mode)
         run: |
           echo "Building Flutter debug APK..."
