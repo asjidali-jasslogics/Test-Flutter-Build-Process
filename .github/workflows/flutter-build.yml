@@ -52,11 +52,11 @@ jobs:
             # Create a Linux-compatible script to replace the Windows cmd commands
             mkdir -p scripts
             cat > scripts/update_app_name.sh << 'EOF'
-#!/bin/bash
-echo "Linux-compatible app name update script"
-# Add your Linux-compatible logic here instead of Windows cmd commands
-# For example, use sed to modify files instead of Windows-specific commands
-EOF
+              #!/bin/bash
+              echo "Linux-compatible app name update script"
+              # Add your Linux-compatible logic here instead of Windows cmd commands
+              # For example, use sed to modify files instead of Windows-specific commands
+            EOF
             chmod +x scripts/update_app_name.sh
             
             # Replace the Windows task with Linux-compatible version
