@@ -12,6 +12,7 @@ jobs:
       GH_REPO: ${{ secrets.REPO }}
       GH_TOKEN: ${{ secrets.GH_PAT }}
       BRANCH: main
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
 
     steps:
       - name: 🧹 Checkout triggering repository
@@ -63,53 +64,35 @@ jobs:
           grep "com.android.tools.build:gradle" build.gradle || echo "AGP verified"
           grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties || echo "Gradle wrapper verified"
 
-      # - name: ⚙️ Configure Android SDK 35
-      #   run: |
-      #     echo "Installing Android SDK 35..."
-      #     sudo mkdir -p /usr/lib/android-sdk/cmdline-tools
-      #     cd /usr/lib/android-sdk/cmdline-tools
-      #     sudo mkdir latest
-      #     cd latest
-      #     sudo wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmd.zip
-      #     sudo unzip cmd.zip
-      #     export ANDROID_SDK_ROOT=/usr/lib/android-sdk
-      #     export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools
-      #     yes | sdkmanager --sdk_root=${ANDROID_SDK_ROOT} --licenses
-      #     sdkmanager --sdk_root=${ANDROID_SDK_ROOT} "platforms;android-35" "build-tools;35.0.0"
-
-
-      - name: 🧩 Install Android SDK 35
+      - name: 🧩 Install Android SDK 35 (Fixed)
         run: |
           echo "Installing Android SDK 35..."
-          ANDROID_HOME=$HOME/android-sdk
           mkdir -p $ANDROID_HOME/cmdline-tools
           cd $ANDROID_HOME/cmdline-tools
 
           # Download latest command line tools
           wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmd.zip
-          unzip cmd.zip -d latest
-          rm cmd.zip
+          unzip cmd.zip -d temp
+          mv temp/cmdline-tools latest
+          rm -rf temp cmd.zip
 
           # Export paths
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator" >> $GITHUB_ENV
 
-          # Use sdkmanager from correct directory
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
 
-          # Install required components
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+          yes | sdkmanager --licenses
+          yes | sdkmanager \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
           echo "✅ Android SDK 35 installed successfully."
 
-
       - name: ✅ Verify Android SDK Installation
         run: |
           echo "Checking Android SDK..."
-          echo "ANDROID_HOME: $ANDROID_HOME"
           ls -R $ANDROID_HOME/cmdline-tools/latest/bin
           sdkmanager --list | head -20
 
