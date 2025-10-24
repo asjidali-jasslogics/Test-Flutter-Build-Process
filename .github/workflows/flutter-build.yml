@@ -1,4 +1,4 @@
-name: 🧱 Flutter Build Automation
+name: 🧱 Flutter Build Automation (Dev Mode)
 
 on:
   workflow_dispatch:
@@ -23,10 +23,10 @@ jobs:
           sudo apt update -y
           sudo apt install -y unzip zip git curl wget openjdk-17-jdk
 
-      - name: 🪄 Install Flutter SDK
+      - name: 🪄 Install Flutter 3.24.2
         run: |
-          echo "Installing Flutter SDK..."
-          git clone https://github.com/flutter/flutter.git -b stable /opt/flutter
+          echo "Installing Flutter SDK (3.24.2)..."
+          git clone https://github.com/flutter/flutter.git -b 3.24.2 /opt/flutter
           export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
           flutter doctor -v
           flutter --version
@@ -39,36 +39,55 @@ jobs:
           export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
           flutter pub get
 
-      - name: 🧰 Patch Gradle and AGP Versions (Auto-fix)
+      - name: 🧰 Patch Gradle, AGP, and SDK versions
         run: |
-          echo "Patching Gradle and Android Gradle Plugin versions..."
+          echo "Patching Android configuration..."
           cd app/android
 
-          # Safely patch AGP version (8.1.1+)
+          # Update AGP version to 8.3.2
           if grep -q "com.android.tools.build:gradle" build.gradle; then
-            sed -i "s#com\.android\.tools\.build:gradle:[0-9\.]\+#com.android.tools.build:gradle:8.1.1#g" build.gradle || true
+            sed -i "s#com\.android\.tools\.build:gradle:[0-9\.]\+#com.android.tools.build:gradle:8.3.2#g" build.gradle || true
           fi
 
-          # Safely update Gradle wrapper to 8.7
+          # Also check settings.gradle (new Flutter template)
+          if grep -q "com.android.application" settings.gradle; then
+            sed -i "s#id 'com.android.application' version '[0-9\.]\+'#id 'com.android.application' version '8.3.2'#g" settings.gradle || true
+          fi
+
+          # Patch Gradle wrapper to 8.3
           if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            echo "Updating Gradle wrapper to 8.7..."
-            sed -i "s#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip#g" gradle/wrapper/gradle-wrapper.properties || true
+            sed -i "s#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-bin.zip#g" gradle/wrapper/gradle-wrapper.properties || true
           fi
 
-          echo "🔧 Gradle configuration after patch:"
-          grep "com.android.tools.build:gradle" build.gradle || echo "AGP line verified"
+          echo "🔧 Verifying Gradle & AGP versions..."
+          grep "com.android.tools.build:gradle" build.gradle || echo "AGP verified"
           grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties || echo "Gradle wrapper verified"
 
-      - name: 🚀 Build Flutter APK (skip dependency validation)
+      - name: ⚙️ Configure Android SDK 35
         run: |
-          echo "Building Flutter release APK..."
+          echo "Installing Android SDK 35..."
+          sudo mkdir -p /usr/lib/android-sdk/cmdline-tools
+          cd /usr/lib/android-sdk/cmdline-tools
+          sudo mkdir latest
+          cd latest
+          sudo wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmd.zip
+          sudo unzip cmd.zip
+          export ANDROID_SDK_ROOT=/usr/lib/android-sdk
+          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools
+          yes | sdkmanager --sdk_root=${ANDROID_SDK_ROOT} --licenses
+          sdkmanager --sdk_root=${ANDROID_SDK_ROOT} "platforms;android-35" "build-tools;35.0.0"
+
+      - name: 🚀 Build Flutter APK (Dev Mode)
+        run: |
+          echo "Building Flutter debug APK..."
           cd app
           export PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH"
-          flutter build apk --release --android-skip-build-dependency-validation
+          flutter doctor
+          flutter build apk --debug --android-skip-build-dependency-validation
 
       - name: 📦 Package build artifacts
         run: |
-          echo "Packaging release build..."
+          echo "Packaging build..."
           cd app/build/app/outputs/flutter-apk
           zip -r flutter_build_${{ github.run_id }}.zip .
           mv flutter_build_${{ github.run_id }}.zip $GITHUB_WORKSPACE/
