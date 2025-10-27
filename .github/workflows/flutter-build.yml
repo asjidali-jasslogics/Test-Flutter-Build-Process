@@ -118,3 +118,4 @@ jobs:
           path: ${{ github.workspace }}/artifacts/flutter_apks_${{ github.run_id }}.zip
 
           retention-days: 7
+
