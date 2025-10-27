@@ -101,7 +101,7 @@ jobs:
       - name: Build Debug APK
         run: |
           cd app
-          flutter build apk --debug --split-per-abi
+          flutter build apk --release
 
       - name: Package APKs
         run: |
@@ -116,4 +116,5 @@ jobs:
         with:
           name: flutter-apks-${{ github.run_id }}
           path: ${{ github.workspace }}/artifacts/flutter_apks_${{ github.run_id }}.zip
+
           retention-days: 7
